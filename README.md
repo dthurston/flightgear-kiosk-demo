@@ -20,9 +20,9 @@ user will also be configured on the edge device to enable switching the
 bootable container image.
 
 ## Demo Setup
-Start with a minimal install of RHEL 9.4 either on baremetal or on a guest
+Start with a minimal install of RHEL 9.8 either on baremetal or on a guest
 VM. Use UEFI firmware, if able to, when installing your system. Also make
-sure there's sufficient disk space on the RHEL 9.4 instance to support the
+sure there's sufficient disk space on the RHEL 9.8 instance to support the
 demo. I typically configure a 128 GiB disk on the guest VM.  During RHEL
 installation, configure a regular user with `sudo` privileges on the host.
 
@@ -65,6 +65,7 @@ The full list of options in the `demo.conf` file are shown here.
 | EDGE_USER        | The name of a user on the target edge device |
 | EDGE_PASS        | The plaintext password for the user on the target edge device |
 | DEMO_USER        | Unprivileged user on the edge device in kiosk mode |
+| RHEL_VERSION     | The RHEL 9 minor release used for the bootc base image and boot ISO |
 | BOOT_ISO         | Minimal boot ISO used to create a custom ISO with a custom kickstart file |
 | EDGE_HASH        | A SHA-512 hash of the EDGE_PASS parameter |
 | SSH_PUB_KEY      | The SSH public key of a user on the target edge device |
@@ -73,7 +74,7 @@ The full list of options in the `demo.conf` file are shown here.
 | CONTAINER_REPO   | The fully qualified name for your bootable container repository |
 | REGISTRYINSECURE | Boolean for whether the registry requires TLS |
 
-Make sure to download the RHEL 9.4 `BOOT_ISO` file, e.g. [rhel-9.4-x86_64-boot.iso](https://access.redhat.com/downloads/content/rhel)
+Make sure to download the RHEL 9.8 `BOOT_ISO` file, e.g. [rhel-9.8-x86_64-boot.iso](https://access.redhat.com/downloads/content/rhel)
 to the local copy of this repository on your RHEL instance
 (e.g. ~/flightgear-kiosk-demo).
 
@@ -106,7 +107,8 @@ credentials and then pull the container image for the base bootable
 container.
 
     podman login registry.redhat.io
-    podman pull registry.redhat.io/rhel9/rhel-bootc:9.4
+    . demo.conf
+    podman pull registry.redhat.io/rhel9/rhel-bootc:$RHEL_VERSION
 
 At this point, setup is complete.
 
@@ -117,7 +119,8 @@ image. This image contains the Firefox browser running in kiosk mode.
     cd ~/flightgear-kiosk-demo
     . demo.conf
     podman build -f BaseContainerfile -t $CONTAINER_REPO:base \
-        --build-arg DEMO_USER=$DEMO_USER
+        --build-arg DEMO_USER=$DEMO_USER \
+        --build-arg RHEL_VERSION=$RHEL_VERSION
 
 Push the image to the registry.
 
