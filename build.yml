@@ -1,0 +1,98 @@
+---
+##
+## Build and push the bootable container images: base, the intermediate
+## fgfs image, and a fixed and broken sound image for each scenario.
+## Runs podman rootless as the regular user. Use --tags base, fgfs,
+## fixed or broken to rebuild part of the set.
+##
+- name: Build and push the bootable container images
+  hosts: buildhost
+  tasks:
+    - name: Load the scenarios
+      ansible.builtin.include_tasks: tasks/load-scenarios.yml
+      tags: always
+
+    - name: Log in to registry.redhat.io
+      ansible.builtin.command:
+        cmd: podman login --username {{ rhsm_user | quote }} --password-stdin registry.redhat.io
+        stdin: "{{ rhsm_pass }}"
+      changed_when: false
+      no_log: true
+      tags: base
+
+    - name: Pull the RHEL bootable container base image
+      ansible.builtin.command: podman pull {{ bootc_base_image }}
+      register: pull
+      changed_when: "'Writing manifest' in pull.stderr"
+      tags: base
+
+    - name: Build the base image
+      ansible.builtin.command:
+        cmd: >-
+          podman build -f BaseContainerfile -t {{ container_repo }}:base
+          --build-arg RHEL_VERSION={{ rhel_version }}
+          --build-arg DEMO_USER={{ demo_user }}
+        chdir: "{{ playbook_dir }}"
+      changed_when: true
+      tags: base
+
+    - name: Push the base image
+      ansible.builtin.command: podman push {{ container_repo }}:base
+      changed_when: true
+      tags: base
+
+    - name: Build the intermediate FlightGear image
+      ansible.builtin.command:
+        cmd: >-
+          podman build -f FGBaseContainerfile -t {{ container_repo }}:fgfs
+          --build-arg CONTAINER_REPO={{ container_repo }}
+        chdir: "{{ playbook_dir }}"
+      changed_when: true
+      tags: fgfs
+
+    - name: Push the intermediate FlightGear image
+      ansible.builtin.command: podman push {{ container_repo }}:fgfs
+      changed_when: true
+      tags: fgfs
+
+    - name: Build the scenario images with working sound
+      ansible.builtin.command:
+        cmd: >-
+          podman build -f FGDemoContainerfile -t {{ container_repo }}:{{ item.tag }}-fixed
+          --build-arg CONTAINER_REPO={{ container_repo }}
+          --build-arg DL_SCENARIO=AircraftCache/{{ item.aircraft }}/
+          --build-arg FGDEMO_CONF={{ item.conf }}
+        chdir: "{{ playbook_dir }}"
+      loop: "{{ scenario_list }}"
+      loop_control:
+        label: "{{ item.tag }}-fixed"
+      changed_when: true
+      tags: fixed
+
+    - name: Push the scenario images with working sound
+      ansible.builtin.command: podman push {{ container_repo }}:{{ item.tag }}-fixed
+      loop: "{{ scenario_list }}"
+      loop_control:
+        label: "{{ item.tag }}-fixed"
+      changed_when: true
+      tags: fixed
+
+    - name: Build the scenario images with broken sound
+      ansible.builtin.command:
+        cmd: >-
+          podman build -f FGNoSoundContainerfile -t {{ container_repo }}:{{ item.tag }}-broken
+          --build-arg CONTAINER_BASE_TAG={{ container_repo }}:{{ item.tag }}-fixed
+        chdir: "{{ playbook_dir }}"
+      loop: "{{ scenario_list }}"
+      loop_control:
+        label: "{{ item.tag }}-broken"
+      changed_when: true
+      tags: broken
+
+    - name: Push the scenario images with broken sound
+      ansible.builtin.command: podman push {{ container_repo }}:{{ item.tag }}-broken
+      loop: "{{ scenario_list }}"
+      loop_control:
+        label: "{{ item.tag }}-broken"
+      changed_when: true
+      tags: broken

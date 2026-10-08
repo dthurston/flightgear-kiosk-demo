@@ -1,0 +1,15 @@
+---
+# Adds aircraft, lat and lon to each entry in scenarios, read from its conf file
+- name: Read aircraft model and position from each scenario file
+  ansible.builtin.set_fact:
+    scenario_list: >-
+      {{ scenario_list | default([]) + [item | combine({
+           'aircraft': conf_text | regex_search('^AIRCRAFT_MODEL=(\S+)', '\1', multiline=True) | first,
+           'lat': conf_text | regex_search('^LAT_DEGREES=(\S+)', '\1', multiline=True) | first,
+           'lon': conf_text | regex_search('^LON_DEGREES=(\S+)', '\1', multiline=True) | first
+         })] }}
+  vars:
+    conf_text: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/' ~ item.conf) }}"
+  loop: "{{ scenarios }}"
+  loop_control:
+    label: "{{ item.conf }}"

@@ -1,0 +1,38 @@
+---
+##
+## Generate a kickstart that installs the base bootable container image
+## and inject it into the RHEL boot ISO. Replaces gen-iso.sh.
+##
+- name: Generate the installable ISO
+  hosts: buildhost
+  become: true
+  vars:
+    ks_file: "{{ playbook_dir }}/bootc-flightgear.ks"
+    iso_file: "{{ playbook_dir }}/bootc-flightgear.iso"
+  tasks:
+    - name: Check for the RHEL boot ISO
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/{{ boot_iso }}"
+      register: boot_iso_stat
+
+    - name: Fail if the RHEL boot ISO is missing
+      ansible.builtin.assert:
+        that: boot_iso_stat.stat.exists
+        fail_msg: Download {{ boot_iso }} to {{ playbook_dir }} first
+
+    - name: Write the kickstart file
+      ansible.builtin.template:
+        src: bootc-flightgear.ks.j2
+        dest: "{{ ks_file }}"
+        mode: "0644"
+
+    - name: Remove any previous ISO
+      ansible.builtin.file:
+        path: "{{ iso_file }}"
+        state: absent
+
+    - name: Inject the kickstart into the boot ISO
+      ansible.builtin.command:
+        cmd: mkksiso --ks {{ ks_file }} {{ boot_iso }} {{ iso_file }}
+        chdir: "{{ playbook_dir }}"
+      changed_when: true

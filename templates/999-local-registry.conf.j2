@@ -1,0 +1,7 @@
+{% if registry_insecure | bool %}
+[[registry]]
+location = "{{ host_ip }}:{{ registry_port }}"
+insecure = true
+{% else %}
+# {{ host_ip }}:{{ registry_port }} uses TLS, no registry settings needed
+{% endif %}

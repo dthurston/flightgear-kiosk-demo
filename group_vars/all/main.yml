@@ -1,0 +1,59 @@
+---
+##
+## Demo settings. Secrets live in vault.yml (encrypt it with ansible-vault).
+##
+
+# RHEL release for the bootable container base image and the boot ISO
+rhel_version: "9.8"
+bootc_base_image: "registry.redhat.io/rhel9/rhel-bootc:{{ rhel_version }}"
+boot_iso: "rhel-{{ rhel_version }}-x86_64-boot.iso"
+
+# Red Hat Simple Content Access credentials (also used for registry.redhat.io)
+rhsm_user: "{{ vault_rhsm_user }}"
+rhsm_pass: "{{ vault_rhsm_pass }}"
+
+epel_url: https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+epel_gpg_key: https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-9
+
+# Privileged user on the edge device
+edge_user: core
+edge_pass: "{{ vault_edge_pass }}"
+edge_hash: "{{ edge_pass | password_hash('sha512', (inventory_hostname | hash('sha256'))[:16]) }}"
+
+# Unprivileged user on the edge device in kiosk mode
+demo_user: kiosk
+
+# SSH keypair used to log in to the edge device as edge_user
+ssh_key_file: "{{ lookup('env', 'HOME') }}/.ssh/id_core"
+ssh_pub_key: "{{ lookup('file', ssh_key_file ~ '.pub') }}"
+
+# Container registry. host_ip defaults to this host's primary address.
+host_ip: "{{ ansible_default_ipv4.address }}"
+registry_port: 5000
+registry_image: docker.io/library/registry:2
+
+# true if using an insecure registry (no TLS)
+registry_insecure: true
+
+# true to run a local registry on this host (registry.yml)
+local_registry: true
+
+# Fully qualified bootable container repository, without a tag
+container_repo: "{{ host_ip }}:{{ registry_port }}/bootc-flightgear"
+
+# FlightGear data sources
+scenery_mirror: https://de2mirror.flightgear.org/ts
+aircraft_url: https://mirrors.ibiblio.org/flightgear/ftp/Aircraft-2020
+flightgear_git: https://git.code.sf.net/p/flightgear/flightgear
+
+# FlightGear scenarios. The aircraft model and lat/lon are read from each
+# conf file. Each scenario becomes the <tag>-fixed and <tag>-broken images.
+scenarios:
+  - tag: f35
+    conf: fgdemo1.conf
+  - tag: f22
+    conf: fgdemo2.conf
+  - tag: b52
+    conf: fgdemo3.conf
+  - tag: uh60
+    conf: fgdemo4.conf

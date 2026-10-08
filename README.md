@@ -20,11 +20,12 @@ user will also be configured on the edge device to enable switching the
 bootable container image.
 
 ## Demo Setup
-Start with a minimal install of RHEL 9.8 either on baremetal or on a guest
-VM. Use UEFI firmware, if able to, when installing your system. Also make
-sure there's sufficient disk space on the RHEL 9.8 instance to support the
-demo. I typically configure a 128 GiB disk on the guest VM.  During RHEL
-installation, configure a regular user with `sudo` privileges on the host.
+Start with a minimal install of the latest RHEL 9 release either on
+baremetal or on a guest VM. Use UEFI firmware, if able to, when installing
+your system. Also make sure there's sufficient disk space on the RHEL
+instance to support the demo. I typically configure a 128 GiB disk on
+the guest VM. During RHEL installation, configure a regular user with
+`sudo` privileges on the host.
 
 These instructions assume that this repository is cloned or copied to your
 user's home directory on the host (e.g. `~/flightgear-kiosk-demo`). The
@@ -45,86 +46,100 @@ cache](https://drive.google.com/drive/folders/112i4mOfHXXEoZNdSln_xWgMdx3ssWHtz?
 and copy the `SceneryCache.tgz` file to the local copy of this repository
 (e.g. `~/flightgear-kiosk-demo`).
 
-Login to the host and then run the following commands to create an SSH
-keypair that you'll use later to access the edge device. Even though you
-really should set a passphrase, skip that when prompted to make the demo
-a little easier to run.
+Download the RHEL boot ISO that matches `rhel_version` in
+`group_vars/all/main.yml`, e.g. [rhel-9.8-x86_64-boot.iso](https://access.redhat.com/downloads/content/rhel),
+to the local copy of this repository.
+
+### Install Ansible
+The setup is automated with Ansible playbooks that run against the
+local host. Ansible is in the RHEL AppStream repository, so register the
+host first and then install it along with the collections the playbooks
+use.
+
+    sudo subscription-manager register
+    sudo dnf -y install ansible-core
+    cd ~/flightgear-kiosk-demo
+    ansible-galaxy collection install -r requirements.yml
+
+### Configure the demo
+All settings are in `group_vars/all/main.yml`. The secrets are in
+`group_vars/all/vault.yml`. Edit the vault file to set your Red Hat
+Simple Content Access credentials and the password for the edge device
+user, then encrypt it.
 
     cd ~/flightgear-kiosk-demo
-    ssh-keygen -t rsa -f ~/.ssh/id_core
+    vi group_vars/all/vault.yml
+    ansible-vault encrypt group_vars/all/vault.yml
 
-Edit the `demo.conf` file and make sure the settings are correct. At a
-minimum, you should adjust the credentials for simple content access.
-The full list of options in the `demo.conf` file are shown here.
+Use `ansible-vault edit group_vars/all/vault.yml` to change it later.
+The secrets are:
 
-| Option           | Description |
-| -----------------| ----------- |
-| SCA_USER         | Your username for Red Hat Simple Content Access |
-| SCA_PASS         | Your password for Red Hat Simple Content Access |
-| EPEL_URL         | The Extra Packages for Enterprise Linux URL |
-| EDGE_USER        | The name of a user on the target edge device |
-| EDGE_PASS        | The plaintext password for the user on the target edge device |
-| DEMO_USER        | Unprivileged user on the edge device in kiosk mode |
-| RHEL_VERSION     | The RHEL 9 minor release used for the bootc base image and boot ISO |
-| BOOT_ISO         | Minimal boot ISO used to create a custom ISO with a custom kickstart file |
-| EDGE_HASH        | A SHA-512 hash of the EDGE_PASS parameter |
-| SSH_PUB_KEY      | The SSH public key of a user on the target edge device |
-| HOSTIP           | The IP address of the local container registry |
-| REGISTRYPORT     | The port for the local container registry |
-| CONTAINER_REPO   | The fully qualified name for your bootable container repository |
-| REGISTRYINSECURE | Boolean for whether the registry requires TLS |
+| Variable        | Description |
+| --------------- | ----------- |
+| vault_rhsm_user | Your username for Red Hat Simple Content Access |
+| vault_rhsm_pass | Your password for Red Hat Simple Content Access |
+| vault_edge_pass | The plaintext password for the user on the target edge device |
 
-Make sure to download the RHEL 9.8 `BOOT_ISO` file, e.g. [rhel-9.8-x86_64-boot.iso](https://access.redhat.com/downloads/content/rhel)
-to the local copy of this repository on your RHEL instance
-(e.g. ~/flightgear-kiosk-demo).
+The settings in `group_vars/all/main.yml` are:
 
-Run the following script to register with Red Hat and update the system.
+| Variable          | Description |
+| ----------------- | ----------- |
+| rhel_version      | RHEL release for the `rhel-bootc` base image and the boot ISO |
+| bootc_base_image  | The RHEL bootable container base image |
+| boot_iso          | Minimal boot ISO used to create a custom ISO with a custom kickstart file |
+| epel_url          | The Extra Packages for Enterprise Linux URL |
+| edge_user         | The name of a user on the target edge device |
+| edge_hash         | A SHA-512 hash of the edge user's password, computed from the vault |
+| demo_user         | Unprivileged user on the edge device in kiosk mode |
+| ssh_key_file      | SSH private key for logging in to the edge device, created if missing |
+| host_ip           | The IP address of the container registry, defaults to this host's address |
+| registry_port     | The port for the container registry |
+| registry_insecure | Boolean for whether the registry is used without TLS |
+| local_registry    | Boolean for whether `site.yml` runs a local registry on this host |
+| container_repo    | The fully qualified name for your bootable container repository |
+| scenarios         | The FlightGear scenarios to cache and build images for |
 
-    sudo ./register-and-update.sh
-    sudo reboot
-
-After the system reboots, run the following script to install container
-and ISO image tools.
+### Run everything at once
+The `site.yml` playbook runs every step below in order: it prepares the
+host, sets up the local registry, refreshes the FlightGear caches,
+builds and pushes all of the images, and generates the ISO. Run Ansible
+as your regular user, not with `sudo`. The `-K` option asks for your
+`sudo` password for the steps that need root, and `-J` asks for the
+vault password.
 
     cd ~/flightgear-kiosk-demo
-    sudo ./config-bootc.sh
+    ansible-playbook site.yml -K -J
 
+If the first playbook says a reboot is needed, reboot and run
+`site.yml` again. Each step can also be run on its own as described
+below.
+
+### Prepare the host
+The `setup.yml` playbook registers with Red Hat, updates the system,
+enables the CodeReady Builder and EPEL repositories, installs the
+container and ISO image tools, configures podman for the insecure
+registry, and creates the `~/.ssh/id_core` keypair you'll use later
+to access the edge device.
+
+    cd ~/flightgear-kiosk-demo
+    ansible-playbook setup.yml -K -J
+
+Reboot if the playbook says updates require it.
+
+### Set up a local registry (optional)
 You can use a publicly accessible registry like [Quay](https://quay.io)
-but if you want to run this demo disconnected, you can also optionally
-set up a local container registry using the following script.
+but if you want to run this demo disconnected, you can also set up a
+local insecure container registry on this host. The `registry.yml`
+playbook opens the registry port and runs the registry as a Quadlet
+service.
 
     cd ~/flightgear-kiosk-demo
-    sudo ./config-registry.sh
+    ansible-playbook registry.yml -K -J
 
-NB: If you set up an insecure registry on another RHEL instance,
-please make sure to copy the `999-local-registry.conf` file to the
-`~/flightgear-kiosk-demo` and `/etc/containers/registries.conf.d`
-directories on this RHEL instance that will build the bootable container
-images.
-
-Login to Red Hat's container registry using your Red Hat customer portal
-credentials and then pull the container image for the base bootable
-container.
-
-    podman login registry.redhat.io
-    . demo.conf
-    podman pull registry.redhat.io/rhel9/rhel-bootc:$RHEL_VERSION
-
-At this point, setup is complete.
-
-## Build the base container image
-Use the following command to build the `base` bootable container
-image. This image contains the Firefox browser running in kiosk mode.
-
-    cd ~/flightgear-kiosk-demo
-    . demo.conf
-    podman build -f BaseContainerfile -t $CONTAINER_REPO:base \
-        --build-arg DEMO_USER=$DEMO_USER \
-        --build-arg RHEL_VERSION=$RHEL_VERSION
-
-Push the image to the registry.
-
-    podman push $CONTAINER_REPO:base
+If you use a different registry, set `host_ip`, `registry_port`,
+`registry_insecure` and `container_repo` to match and set
+`local_registry: false`. When the insecure registry runs on another RHEL
+instance, `setup.yml` still configures this host to use it.
 
 ## Review the FlightGear scenario files
 Each FlightGear scenario is defined in a parameter file following
@@ -144,6 +159,16 @@ more. The included scenarios are:
 There's an extensive set of FlightGear [aircraft models](https://mirrors.ibiblio.org/flightgear/ftp/Aircraft-2020)
 that you can use.
 
+Each scenario is listed in `scenarios` in `group_vars/all/main.yml`
+with the image tag prefix and its parameter file. The playbooks read the
+aircraft model and starting position from the parameter file. To add a
+scenario, create a new `fgdemo<n>.conf` file and add it to the list.
+
+    scenarios:
+      - tag: f35
+        conf: fgdemo1.conf
+      ...
+
 ## Refresh the scenario content for FlightGear
 The FlightGear scenery is quite detailed and bulk downloads are throttled
 to avoid overloading the servers. Normally, the simulator pulls scenery
@@ -151,109 +176,55 @@ on-demand using a feature called `terrasync`, but for disconnected use
 cases, the scenery snapshot (`SceneryCache.tgz`) that you downloaded
 earlier seeds scenery for flight over defined geographic areas.
 
-The following commands prepare the scenery cache and then refresh the
-data with any changes since the scenery data was last synced. How long
-this takes depends on the extent of changes that are necessary. The
-`update-data-cache.sh` script will also download the aircraft data
-defined in the scenario parameter files.
+The `cache.yml` playbook extracts `SceneryCache.tgz` into `SceneryCache`
+the first time it runs, then refreshes the data with any changes since
+the scenery data was last synced. How long this takes depends on the
+extent of changes that are necessary. It also downloads the aircraft
+model for each scenario into `AircraftCache`.
 
     cd ~/flightgear-kiosk-demo
-    mkdir -p AircraftCache SceneryCache
-    tar zxf SceneryCache.tgz -C SceneryCache
-    ./update-data-cache.sh
+    ansible-playbook cache.yml -J
 
-After this command runs, both the `AircraftCache` and the `SceneryCache`
+After this playbook runs, both the `AircraftCache` and the `SceneryCache`
 directories should be up to date.
 
-## Build the intermediate FlightGear container image
-Use the following command to build the `fgfs` container image that
-installs the FlightGear flight simulator and its extensive scenery
-files. This image will be quite large.
+## Build the bootable container images
+The `build.yml` playbook logs in to Red Hat's container registry with
+your customer portal credentials, pulls the RHEL bootable container
+base image, then builds and pushes these images in order:
+
+* `base`, which contains the Firefox browser running in kiosk mode
+  (`BaseContainerfile`)
+* `fgfs`, an intermediate image that installs the FlightGear flight
+  simulator and its extensive scenery files. This image will be quite
+  large. (`FGBaseContainerfile`)
+* `<tag>-fixed` for each scenario, a bootable container with working
+  sound (`FGDemoContainerfile`)
+* `<tag>-broken` for each scenario, built from the matching `fixed`
+  image with the sound turned off. We'll use this to illustrate
+  patching. (`FGNoSoundContainerfile`)
+
+Run the playbook as your regular user so podman runs rootless.
 
     cd ~/flightgear-kiosk-demo
-    . demo.conf
-    podman build -f FGBaseContainerfile -t $CONTAINER_REPO:fgfs \
-        --build-arg CONTAINER_REPO=$CONTAINER_REPO
+    ansible-playbook build.yml -J
 
-Push the intermediate FlightGear container to the registry.
-
-    podman push $CONTAINER_REPO:fgfs
-
-## Build the FlightGear scenario container images
-You are now ready to build a bootable container image for each
-scenario. Use the following commands:
-
-    cd ~/flightgear-kiosk-demo
-    . demo.conf
-
-    podman build -f FGDemoContainerfile -t $CONTAINER_REPO:f35-fixed \
-        --build-arg CONTAINER_REPO=$CONTAINER_REPO \
-        --build-arg DL_SCENARIO=AircraftCache/F-35B/ \
-        --build-arg FGDEMO_CONF=fgdemo1.conf
-
-    podman build -f FGDemoContainerfile -t $CONTAINER_REPO:f22-fixed \
-        --build-arg CONTAINER_REPO=$CONTAINER_REPO \
-        --build-arg DL_SCENARIO=AircraftCache/Lockheed-Martin-FA-22A-Raptor/ \
-        --build-arg FGDEMO_CONF=fgdemo2.conf
-
-    podman build -f FGDemoContainerfile -t $CONTAINER_REPO:b52-fixed \
-        --build-arg CONTAINER_REPO=$CONTAINER_REPO \
-        --build-arg DL_SCENARIO=AircraftCache/B-52F/ \
-        --build-arg FGDEMO_CONF=fgdemo3.conf
-
-    podman build -f FGDemoContainerfile -t $CONTAINER_REPO:uh60-fixed \
-        --build-arg CONTAINER_REPO=$CONTAINER_REPO \
-        --build-arg DL_SCENARIO=AircraftCache/UH-60/ \
-        --build-arg FGDEMO_CONF=fgdemo4.conf
-
-Push the FlightGear bootable containers to the registry. These container
-images all include working sound. We'll use an issue with sound to
-illustrate patching.
-
-    podman push $CONTAINER_REPO:f35-fixed
-    podman push $CONTAINER_REPO:f22-fixed
-    podman push $CONTAINER_REPO:b52-fixed
-    podman push $CONTAINER_REPO:uh60-fixed
-
-Next, build the container images that do not have sound. The
-`FGNoSoundContainerFile` removes the sound libraries from the base images
-to prevent sound from working on the target device.
-
-    cd ~/flightgear-kiosk-demo
-    . demo.conf
-
-    podman build -f FGNoSoundContainerfile -t $CONTAINER_REPO:f35-broken \
-        --build-arg CONTAINER_BASE_TAG=$CONTAINER_REPO:f35-fixed
-
-    podman build -f FGNoSoundContainerfile -t $CONTAINER_REPO:f22-broken \
-        --build-arg CONTAINER_BASE_TAG=$CONTAINER_REPO:f22-fixed
-
-    podman build -f FGNoSoundContainerfile -t $CONTAINER_REPO:b52-broken \
-        --build-arg CONTAINER_BASE_TAG=$CONTAINER_REPO:b52-fixed
-
-    podman build -f FGNoSoundContainerfile -t $CONTAINER_REPO:uh60-broken \
-        --build-arg CONTAINER_BASE_TAG=$CONTAINER_REPO:uh60-fixed
-
-Push the FlightGear bootable containers to the registry. These container
-images all include broken sound.
-
-    podman push $CONTAINER_REPO:f35-broken
-    podman push $CONTAINER_REPO:f22-broken
-    podman push $CONTAINER_REPO:b52-broken
-    podman push $CONTAINER_REPO:uh60-broken
+To rebuild only part of the set, use the `base`, `fgfs`, `fixed` or
+`broken` tags, e.g. `ansible-playbook build.yml -J --tags fixed,broken`.
 
 ## Deploy the image using an ISO file
-Run the following command to generate an installable ISO file for your
-bootable container. This command prepares a kickstart file to pull
-the bootable container image from the registry and install that to the
-filesystem on the target system. This kickstart file is then injected
-into the standard RHEL boot ISO you downloaded earlier. It's important to
-note that the content for the target system is actually in the bootable
+The `iso.yml` playbook generates an installable ISO file for your
+bootable container. It writes a kickstart file that pulls the bootable
+container image from the registry and installs it to the filesystem on
+the target system. This kickstart file is then injected into the
+standard RHEL boot ISO you downloaded earlier. It's important to note
+that the content for the target system is actually in the bootable
 container image in the registry. This ISO merely contains enough to start
 the system and then use the kickstart file to pull the operating system
 content from the container registry.
 
-    sudo ./gen-iso.sh
+    cd ~/flightgear-kiosk-demo
+    ansible-playbook iso.yml -K -J
 
 The generated file is named `bootc-flightgear.iso`. Use that file to boot
 a physical edge device or virtual guest. Ensure that you use the UEFI
@@ -285,7 +256,7 @@ at startup and render the browser in full screen and kiosk mode. No
 other desktop controls are available to the `kiosk` user.
 
 To switch the bootable container operating system, login as the
-`EDGE_USER` defined in the `demo.conf` file earlier using ssh and the
+`edge_user` defined in `group_vars/all/main.yml` earlier using ssh and the
 `id_core` private key created earlier.
 
     ssh -i ~/.ssh/id_core core@IP_ADDRESS
@@ -297,8 +268,8 @@ Then type the following commands to switch to the F-22 flight simulation.
     sudo bootc switch HOSTIP:REGISTRYPORT/bootc-flightgear:f35-broken
     sudo reboot
 
-where `HOSTIP` and `REGISTRYPORT` match the values in the `demo.conf`
-file. The other possibilities are:
+where `HOSTIP` and `REGISTRYPORT` match the `host_ip` and `registry_port`
+values in `group_vars/all/main.yml`. The other possibilities are:
 
     HOSTIP:REGISTRYPORT/bootc-flightgear:base
     HOSTIP:REGISTRYPORT/bootc-flightgear:f35-fixed

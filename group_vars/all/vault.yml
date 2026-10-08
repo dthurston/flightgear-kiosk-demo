@@ -1,0 +1,9 @@
+---
+##
+## Secrets. Replace the placeholders, then encrypt this file:
+##
+##     ansible-vault encrypt group_vars/all/vault.yml
+##
+vault_rhsm_user: SCA_USERNAME
+vault_rhsm_pass: SCA_PASSWORD
+vault_edge_pass: edge
