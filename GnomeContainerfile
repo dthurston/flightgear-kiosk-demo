@@ -4,7 +4,8 @@
 ## placeholders for the flightgear flight simulator, but none of that
 ## software or content are installed.
 ## 
-FROM registry.redhat.io/rhel9/rhel-bootc:9.4
+ARG RHEL_VERSION=9.8
+FROM registry.redhat.io/rhel9/rhel-bootc:${RHEL_VERSION}
 
 # configure an insecure local registry
 RUN  mkdir -p /etc/containers/registries.conf.d
