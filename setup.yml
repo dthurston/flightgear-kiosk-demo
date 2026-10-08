@@ -1,0 +1,91 @@
+---
+##
+## Register with Red Hat, update the system, and install the container
+## and ISO image tools. Replaces register-and-update.sh and config-bootc.sh.
+##
+- name: Prepare the build host
+  hosts: buildhost
+  become: true
+  tasks:
+    - name: Check that the RHSM credentials have been set
+      ansible.builtin.assert:
+        that:
+          - rhsm_user != 'SCA_USERNAME'
+          - rhsm_pass != 'SCA_PASSWORD'
+        fail_msg: Set vault_rhsm_user and vault_rhsm_pass in group_vars/all/vault.yml
+
+    - name: Register with Red Hat Simple Content Access
+      community.general.redhat_subscription:
+        state: present
+        username: "{{ rhsm_user }}"
+        password: "{{ rhsm_pass }}"
+        syspurpose:
+          role: Red Hat Enterprise Linux Server
+          service_level_agreement: Self-Support
+          usage: Development/Test
+          sync: true
+      no_log: true
+
+    - name: Update all packages
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest  # noqa package-latest
+        update_cache: true
+
+    # some packages in EPEL require packages in the codeready-builder repo
+    - name: Enable the CodeReady Builder repository
+      community.general.rhsm_repository:
+        name: "codeready-builder-for-rhel-9-{{ ansible_architecture }}-rpms"
+        state: enabled
+
+    - name: Import the EPEL signing key
+      ansible.builtin.rpm_key:
+        key: "{{ epel_gpg_key }}"
+        state: present
+
+    - name: Enable the EPEL repository
+      ansible.builtin.dnf:
+        name: "{{ epel_url }}"
+        state: present
+
+    - name: Install container and ISO image tools
+      ansible.builtin.dnf:
+        name:
+          - container-tools
+          - lorax
+          - git
+        state: present
+
+    - name: Configure the insecure registry for podman
+      ansible.builtin.template:
+        src: 999-local-registry.conf.j2
+        dest: /etc/containers/registries.conf.d/999-local-registry.conf
+        mode: "0644"
+      when: registry_insecure | bool
+
+    # The Containerfiles copy this file into the bootable container images
+    - name: Make a local copy of the registry config for the image builds
+      ansible.builtin.template:
+        src: 999-local-registry.conf.j2
+        dest: "{{ playbook_dir }}/999-local-registry.conf"
+        owner: "{{ lookup('env', 'USER') }}"
+        mode: "0644"
+
+    - name: Check whether a reboot is needed
+      ansible.builtin.command: dnf needs-restarting -r
+      register: needs_restarting
+      changed_when: false
+      failed_when: needs_restarting.rc not in [0, 1]
+
+    - name: Ask for a reboot
+      ansible.builtin.debug:
+        msg: Updates require a reboot. Run 'sudo reboot', then continue with the next playbook.
+      when: needs_restarting.rc == 1
+
+- name: Create the SSH keypair for the edge device
+  hosts: buildhost
+  tasks:
+    - name: Generate the SSH keypair without a passphrase
+      ansible.builtin.command:
+        cmd: "ssh-keygen -q -t rsa -N '' -f {{ ssh_key_file }}"
+        creates: "{{ ssh_key_file }}"

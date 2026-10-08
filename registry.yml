@@ -1,0 +1,39 @@
+---
+##
+## Run a local insecure container registry on this host as a Quadlet
+## service. Replaces config-registry.sh.
+##
+- name: Set up a local container registry
+  hosts: buildhost
+  become: true
+  tasks:
+    - name: Check that the registry is insecure
+      ansible.builtin.assert:
+        that: registry_insecure | bool
+        fail_msg: Only run this for an insecure registry (registry_insecure is false)
+
+    - name: Open the registry port
+      ansible.posix.firewalld:
+        port: "{{ registry_port }}/tcp"
+        permanent: true
+        immediate: true
+        state: enabled
+
+    - name: Create the registry storage directory
+      ansible.builtin.file:
+        path: /var/lib/registry
+        state: directory
+        mode: "0755"
+
+    - name: Install the registry Quadlet
+      ansible.builtin.template:
+        src: local-registry.container.j2
+        dest: /etc/containers/systemd/local-registry.container
+        mode: "0644"
+      register: quadlet
+
+    - name: Start the local registry
+      ansible.builtin.systemd_service:
+        name: local-registry
+        state: "{{ 'restarted' if quadlet.changed else 'started' }}"
+        daemon_reload: true

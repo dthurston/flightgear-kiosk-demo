@@ -1,0 +1,20 @@
+---
+##
+## Run every step: prepare the host, set up the local registry, refresh
+## the FlightGear caches, build and push the images, and generate the ISO.
+##
+- name: Prepare the build host
+  ansible.builtin.import_playbook: setup.yml
+
+- name: Set up a local container registry
+  ansible.builtin.import_playbook: registry.yml
+  when: local_registry | bool
+
+- name: Refresh the FlightGear caches
+  ansible.builtin.import_playbook: cache.yml
+
+- name: Build and push the bootable container images
+  ansible.builtin.import_playbook: build.yml
+
+- name: Generate the installable ISO
+  ansible.builtin.import_playbook: iso.yml

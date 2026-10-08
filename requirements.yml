@@ -1,0 +1,7 @@
+---
+# Versions that still support the ansible-core 2.14 shipped in RHEL 9 AppStream
+collections:
+  - name: community.general
+    version: ">=9.0.0,<10.0.0"
+  - name: ansible.posix
+    version: ">=1.5.4,<1.6.0"

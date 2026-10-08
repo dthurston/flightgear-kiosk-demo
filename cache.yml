@@ -1,0 +1,80 @@
+---
+##
+## Download the aircraft models and refresh the scenery cache for each
+## scenario using terrasync. Replaces update-data-cache.sh. Runs as the
+## regular user, not root.
+##
+- name: Refresh the FlightGear aircraft and scenery caches
+  hosts: buildhost
+  gather_facts: false
+  vars:
+    aircraft_cache: "{{ playbook_dir }}/AircraftCache"
+    scenery_cache: "{{ playbook_dir }}/SceneryCache"
+    terrasync_dir: "{{ playbook_dir }}/flightgear/scripts/python/TerraSync"
+  tasks:
+    - name: Load the scenarios
+      ansible.builtin.include_tasks: tasks/load-scenarios.yml
+
+    - name: Create the cache directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ aircraft_cache }}"
+        - "{{ scenery_cache }}"
+
+    - name: Check whether the scenery cache has been seeded
+      ansible.builtin.find:
+        paths: "{{ scenery_cache }}"
+        file_type: any
+      register: scenery_contents
+
+    - name: Seed the scenery cache from SceneryCache.tgz
+      ansible.builtin.unarchive:
+        src: "{{ playbook_dir }}/SceneryCache.tgz"
+        dest: "{{ scenery_cache }}"
+        remote_src: true
+      when: scenery_contents.matched == 0
+
+    - name: Get the terrasync utility
+      ansible.builtin.git:
+        repo: "{{ flightgear_git }}"
+        dest: "{{ playbook_dir }}/flightgear"
+        depth: 1
+        version: HEAD  # noqa latest[git]
+
+    - name: Create a cache directory for each aircraft
+      ansible.builtin.file:
+        path: "{{ aircraft_cache }}/{{ item.aircraft }}"
+        state: directory
+        mode: "0755"
+      loop: "{{ scenario_list }}"
+      loop_control:
+        label: "{{ item.aircraft }}"
+
+    - name: Download each aircraft model
+      ansible.builtin.get_url:
+        url: "{{ aircraft_url }}/{{ item.aircraft }}.zip"
+        dest: "{{ aircraft_cache }}/{{ item.aircraft }}/{{ item.aircraft }}.zip"
+        mode: "0644"
+      loop: "{{ scenario_list }}"
+      loop_control:
+        label: "{{ item.aircraft }}"
+
+    # scenery covers +/-5 degrees around the aircraft starting position
+    - name: Sync the scenery around each scenario
+      ansible.builtin.command:
+        cmd: >-
+          ./terrasync.py
+          --url {{ scenery_mirror }}
+          --target {{ scenery_cache }}
+          --top {{ item.lat | int + 5 }}
+          --bottom {{ item.lat | int - 5 }}
+          --left {{ item.lon | int - 5 }}
+          --right {{ item.lon | int + 5 }}
+        chdir: "{{ terrasync_dir }}"
+      loop: "{{ scenario_list }}"
+      loop_control:
+        label: "{{ item.conf }}"
+      changed_when: true

@@ -1,0 +1,14 @@
+[Unit]
+Description=A simple local registry
+
+[Container]
+Image={{ registry_image }}
+ContainerName=registry
+PublishPort={{ registry_port }}:5000
+Volume=/var/lib/registry:/var/lib/registry:Z
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target
