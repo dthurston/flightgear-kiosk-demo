@@ -34,7 +34,7 @@ instructions below follow that assumption.
 The open source FlightGear flight simulator is not normally available
 for RHEL 9 so I had to custom build eight RPMs in addition to using EPEL
 for other dependencies. You can find instructions on how to do that
-[here](https://github.com/rlucente-se-jboss/build-flightgear-rpms)
+[here](https://github.com/dthurston/build-flightgear-rpms)
 but it's far easier, after cloning this repo, to download the custom built
 [FlightGear RPMs](https://drive.google.com/drive/folders/112i4mOfHXXEoZNdSln_xWgMdx3ssWHtz?usp=drive_link)
 and copy the `fg-rpms.tgz` file to the local copy of this repository
